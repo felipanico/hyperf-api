@@ -14,7 +14,26 @@ services:
     environment:
       - APP_ENV=dev
       - SCAN_CACHEABLE=false
+    depends_on:
+      - mysql
+
+  mysql:
+    container_name: mysql-skeleton
+    image: mysql:8
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: api_pix
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: docker
+      MYSQL_PASSWORD: homestead
+    ports:
+      - 3306:3306
+    volumes:
+      - mysql_data:/var/lib/mysql
 
 networks:
   default:
     name: hyperf-skeleton
+
+volumes:
+  mysql_data:

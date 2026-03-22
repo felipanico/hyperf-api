@@ -1,8 +1,8 @@
 <?php
 
-use Hyperf\Database\Schema\Schema;
-use Hyperf\Database\Schema\Blueprint;
 use Hyperf\Database\Migrations\Migration;
+use Hyperf\Database\Schema\Blueprint;
+use Hyperf\Database\Schema\Schema;
 
 return new class extends Migration
 {
@@ -12,8 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('account_withdraw_pix', function (Blueprint $table) {
-            $table->bigIncrements('id');
-            $table->datetimes();
+            $table->uuid('account_withdraw_id');
+            $table->string('type');
+            $table->string('key');
         });
     }
 
