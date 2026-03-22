@@ -19,8 +19,10 @@ use ValueError;
 
 class AccountWithdrawService
 {
-    public function __construct(private readonly AccountWithdrawRepository $repository)
-    {
+    public function __construct(
+        private readonly AccountWithdrawRepository $repository,
+        private readonly MailService $mailService,
+    ) {
     }
 
     public function store(array $data): array
@@ -29,11 +31,12 @@ class AccountWithdrawService
         $method = $this->resolveMethod($data['method']);
         $schedule = $this->parseSchedule($data['schedule'] ?? null);
         $amount = $this->normalizeAmount($data['amount']);
+        $processedAt = new DateTimeImmutable();
 
         $this->assertSufficientBalance($account, $amount);
         $this->validateMethodPayload($method, $data);
 
-        return Db::transaction(function () use ($account, $data, $method, $schedule, $amount): array {
+        $result = Db::transaction(function () use ($account, $data, $method, $schedule, $amount): array {
             $withdrawId = $this->generateUuid();
             $isScheduled = $schedule !== null;
 
@@ -58,6 +61,12 @@ class AccountWithdrawService
                 'account' => $account->fresh()?->toArray(),
             ];
         });
+
+        if ($schedule === null) {
+            $this->sendWithdrawNotification($data, $amount, $processedAt);
+        }
+
+        return $result;
     }
 
     private function findAccount(string $accountId): Account
@@ -175,6 +184,17 @@ class AccountWithdrawService
             'type' => $data['pix']['type'],
             'key' => $data['pix']['key'],
         ];
+    }
+
+    private function sendWithdrawNotification(array $data, string $amount, DateTimeImmutable $processedAt): void
+    {
+        $this->mailService->sendWithdrawExecutedEmail(
+            recipientEmail: $data['pix']['key'],
+            amount: $amount,
+            pixType: $data['pix']['type'],
+            pixKey: $data['pix']['key'],
+            processedAt: $processedAt,
+        );
     }
 
     private function toCents(string $amount): int
