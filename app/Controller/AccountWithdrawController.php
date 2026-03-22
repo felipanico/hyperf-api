@@ -13,13 +13,11 @@ class AccountWithdrawController extends AbstractController
     {
     }
 
-   public function store(string $accountId, StoreAccountWithdrawRequest $request): array
+    public function store(string $accountId, StoreAccountWithdrawRequest $request): array
     {
-        $validatedData = $request->all();
-        
         return $this->service->store([
             'account_id' => $accountId,
-            ...$validatedData,
+            ...$request->validated(),
         ]);
     }
 }
