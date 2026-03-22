@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Business\Service;
 
-use App\Business\Service\MailService;
 use App\Business\Repository\AccountWithdrawRepository;
 use App\Enum\PixKeyType;
 use App\Enum\WithdrawMethod;
@@ -16,6 +15,7 @@ use App\Exception\UnsupportedWithdrawMethodException;
 use App\Model\Account;
 use DateTimeImmutable;
 use Hyperf\DbConnection\Db;
+use Throwable;
 use ValueError;
 
 class AccountWithdrawService
@@ -28,16 +28,34 @@ class AccountWithdrawService
 
     public function store(array $data): array
     {
-        $account = $this->findAccount($data['account_id']);
-        $method = $this->resolveMethod($data['method']);
-        $schedule = $this->parseSchedule($data['schedule'] ?? null);
         $amount = $this->normalizeAmount($data['amount']);
+        $schedule = $this->parseScheduleSafely($data['schedule'] ?? null);
         $processedAt = new DateTimeImmutable();
 
+        try {
+            $result = $this->processWithdraw($data, $amount, $schedule);
+        } catch (Throwable $throwable) {
+            $this->storeFailedWithdrawAttempt($data, $amount, $schedule, $throwable);
+            throw $throwable;
+        }
+
+        if ($schedule === null) {
+            $this->sendWithdrawNotification($data, $amount, $processedAt);
+        }
+
+        return $result;
+    }
+
+    private function processWithdraw(array $data, string $amount, ?DateTimeImmutable $schedule): array
+    {
+        $account = $this->findAccount($data['account_id']);
+        $method = $this->resolveMethod($data['method']);
+
+        $this->assertScheduleIsValid($schedule);
         $this->assertSufficientBalance($account, $amount);
         $this->validateMethodPayload($method, $data);
 
-        $result = Db::transaction(function () use ($account, $data, $method, $schedule, $amount): array {
+        return Db::transaction(function () use ($account, $data, $method, $schedule, $amount): array {
             $withdrawId = $this->generateUuid();
             $isScheduled = $schedule !== null;
 
@@ -48,10 +66,12 @@ class AccountWithdrawService
             $withdraw = $this->repository->storeWithDrawData($this->buildWithdrawData(
                 withdrawId: $withdrawId,
                 accountId: (string) $account->id,
-                method: $method,
+                method: $method->value,
                 amount: $amount,
                 schedule: $schedule,
                 done: ! $isScheduled,
+                error: false,
+                errorReason: null,
             ));
 
             $details = $this->storeMethodData($method, $withdrawId, $data);
@@ -62,12 +82,27 @@ class AccountWithdrawService
                 'account' => $account->fresh()?->toArray(),
             ];
         });
+    }
 
-        if ($schedule === null) {
-            $this->sendWithdrawNotification($data, $amount, $processedAt);
+    private function storeFailedWithdrawAttempt(
+        array $data,
+        string $amount,
+        ?DateTimeImmutable $schedule,
+        Throwable $throwable,
+    ): void {
+        try {
+            $this->repository->storeWithDrawData($this->buildWithdrawData(
+                withdrawId: $this->generateUuid(),
+                accountId: (string) ($data['account_id'] ?? ''),
+                method: $this->resolveFailedMethod($data['method'] ?? null),
+                amount: $amount,
+                schedule: $schedule,
+                done: false,
+                error: true,
+                errorReason: $throwable->getMessage(),
+            ));
+        } catch (Throwable) {
         }
-
-        return $result;
     }
 
     private function findAccount(string $accountId): Account
@@ -90,7 +125,7 @@ class AccountWithdrawService
         }
     }
 
-    private function parseSchedule(?string $schedule): ?DateTimeImmutable
+    private function parseScheduleSafely(?string $schedule): ?DateTimeImmutable
     {
         if ($schedule === null || $schedule === '') {
             return null;
@@ -98,11 +133,14 @@ class AccountWithdrawService
 
         $scheduledFor = DateTimeImmutable::createFromFormat('Y-m-d H:i', $schedule);
 
-        if (! $scheduledFor instanceof DateTimeImmutable || $scheduledFor < new DateTimeImmutable()) {
+        return $scheduledFor instanceof DateTimeImmutable ? $scheduledFor : null;
+    }
+
+    private function assertScheduleIsValid(?DateTimeImmutable $schedule): void
+    {
+        if ($schedule !== null && $schedule < new DateTimeImmutable()) {
             throw new InvalidWithdrawScheduleException();
         }
-
-        return $scheduledFor;
     }
 
     private function normalizeAmount(int|float|string $amount): string
@@ -153,21 +191,23 @@ class AccountWithdrawService
     private function buildWithdrawData(
         string $withdrawId,
         string $accountId,
-        WithdrawMethod $method,
+        string $method,
         string $amount,
         ?DateTimeImmutable $schedule,
         bool $done,
+        bool $error,
+        ?string $errorReason,
     ): array {
         return [
             'id' => $withdrawId,
             'account_id' => $accountId,
-            'method' => $method->value,
+            'method' => $method,
             'amount' => $amount,
             'scheduled' => $schedule !== null,
             'scheduled_for' => $schedule?->format('Y-m-d H:i:s'),
             'done' => $done,
-            'error' => false,
-            'error_reason' => null,
+            'error' => $error,
+            'error_reason' => $errorReason,
         ];
     }
 
@@ -196,6 +236,15 @@ class AccountWithdrawService
             pixKey: $data['pix']['key'],
             processedAt: $processedAt,
         );
+    }
+
+    private function resolveFailedMethod(?string $method): string
+    {
+        if ($method === null || $method === '') {
+            return 'UNKNOWN';
+        }
+
+        return substr($method, 0, 50);
     }
 
     private function toCents(string $amount): int
