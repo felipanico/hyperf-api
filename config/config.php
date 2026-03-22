@@ -17,7 +17,11 @@ use function Hyperf\Support\env;
 return [
     'app_name' => env('APP_NAME', 'skeleton'),
     'app_env' => env('APP_ENV', 'dev'),
+    'timezone' => env('APP_TIMEZONE', 'America/Sao_Paulo'),
     'scan_cacheable' => env('SCAN_CACHEABLE', false),
+    'observability_host' => env('OBSERVABILITY_HOST', 'http://uptime-kuma:3001'),
+    'observability_token' => env('OBSERVABILITY_TOKEN', false),
+    
     StdoutLoggerInterface::class => [
         'log_level' => [
             LogLevel::ALERT,

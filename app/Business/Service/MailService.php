@@ -18,6 +18,7 @@ class MailService
     }
 
     public function sendWithdrawExecutedEmail(
+        string $withdrawId,
         string $recipientEmail,
         string $amount,
         string $pixType,
@@ -28,13 +29,14 @@ class MailService
             from: (string) $this->config->get('mail.from.address', 'no-reply@api-pix.local'),
             to: $recipientEmail,
             subject: 'Withdraw executed',
-            text: $this->buildWithdrawExecutedBody($amount, $pixType, $pixKey, $processedAt),
+            text: $this->buildWithdrawExecutedBody($withdrawId, $amount, $pixType, $pixKey, $processedAt),
         );
 
         $this->provider->send($message);
     }
 
     private function buildWithdrawExecutedBody(
+        string $withdrawId,
         string $amount,
         string $pixType,
         string $pixKey,
@@ -42,6 +44,7 @@ class MailService
     ): string {
         return implode("\n", [
             'Your withdraw was successfully executed.',
+            sprintf('Withdraw id: %s', $withdrawId),
             sprintf('Date and time: %s', $processedAt->format('Y-m-d H:i:s')),
             sprintf('Amount: %s', $amount),
             sprintf('PIX type: %s', $pixType),

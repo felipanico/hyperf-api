@@ -9,6 +9,7 @@ use Hyperf\Stringable\Str;
 class InitialDataSeeder extends Seeder
 {
     private const PREFIX = 'Conta ';
+    private const UUID = '11111111-2222-3333-4444-555555555555';
 
     public function run(): void
     {
@@ -23,9 +24,20 @@ class InitialDataSeeder extends Seeder
         }
     }
 
+    /**
+     * Primeira empresa criada de forma fixa
+     * para facilitar testes e documentação
+     *
+     * @return array
+     */
     private function accounts(): array
     {
         return [
+            [
+                'id' => self::UUID,
+                'name' => self::PREFIX,
+                'balance' => rand(100, 1000),
+            ],
             [
                 'id' => Str::uuid()->toString(),
                 'name' => self::PREFIX. ' '. Str::random(5),

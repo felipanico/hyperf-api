@@ -5,24 +5,26 @@ declare(strict_types=1);
 namespace App\Business\Service;
 
 use App\Business\Repository\AccountWithdrawRepository;
+use App\Business\Service\Withdraw\WithdrawExecutionService;
 use App\Contract\WithdrawMethodServiceInterface;
 use App\Enum\WithdrawMethod;
 use App\Exception\AccountNotFoundException;
-use App\Exception\InsufficientBalanceException;
 use App\Exception\InvalidWithdrawScheduleException;
-use App\Exception\UnsupportedWithdrawMethodException;
 use App\Model\Account;
 use DateTimeImmutable;
 use Hyperf\DbConnection\Db;
 use Hyperf\Stringable\Str;
+use Psr\SimpleCache\CacheInterface;
 use Throwable;
-use ValueError;
 
 class AccountWithdrawService
 {
+    private const NEXT_PENDING_WITHDRAW_CACHE_KEY = 'cron:withdraw:next-pending-scheduled-for';
+
     public function __construct(
         private readonly AccountWithdrawRepository $repository,
-        private readonly WithdrawMethodServiceInterface $pixService,
+        private readonly WithdrawExecutionService $withdrawExecutionService,
+        private readonly CacheInterface $cache,
     ) {
     }
 
@@ -31,8 +33,8 @@ class AccountWithdrawService
         $amount = $this->normalizeAmount($data['amount']);
         $schedule = $this->parseScheduleSafely($data['schedule'] ?? null);
         $processedAt = new DateTimeImmutable();
-        $method = $this->resolveMethod($data['method']);
-        $methodService = $this->resolveMethodService($method);
+        $method = $this->withdrawExecutionService->resolveMethod($data['method']);
+        $methodService = $this->withdrawExecutionService->resolveMethodService($method);
 
         try {
             $result = $this->processWithdraw($data, $amount, $schedule, $method, $methodService);
@@ -41,9 +43,7 @@ class AccountWithdrawService
             throw $throwable;
         }
 
-        if ($schedule === null) {
-            $methodService->sendNotification($data, $amount, $processedAt);
-        }
+        $this->handleWithdrawExecution($schedule, $methodService, $result, $amount, $processedAt);
 
         return $result;
     }
@@ -58,7 +58,7 @@ class AccountWithdrawService
         $account = $this->findAccount($data['account_id']);
 
         $this->assertScheduleIsValid($schedule);
-        $this->assertSufficientBalance($account, $amount);
+        $this->withdrawExecutionService->assertSufficientBalance($account, $amount);
         $methodService->validatePayload($data);
 
         return Db::transaction(function () use ($account, $data, $method, $methodService, $schedule, $amount): array {
@@ -66,7 +66,7 @@ class AccountWithdrawService
             $isScheduled = $schedule !== null;
 
             if (! $isScheduled) {
-                $this->deductAccountBalance($account, $amount);
+                $this->withdrawExecutionService->deductAccountBalance($account, $amount);
             }
 
             $withdraw = $this->repository->storeWithDrawData($this->buildWithdrawData(
@@ -85,9 +85,38 @@ class AccountWithdrawService
             return [
                 'withdraw' => $withdraw,
                 'details' => $details,
+                'notification_data' => $this->buildNotificationData($data, $withdrawId),
                 'account' => $account->fresh()?->toArray(),
             ];
         });
+    }
+
+    private function handleWithdrawExecution(
+        ?DateTimeImmutable $schedule,
+        WithdrawMethodServiceInterface $methodService,
+        array $result,
+        string $amount,
+        DateTimeImmutable $processedAt,
+    ): void {
+        if ($schedule !== null) {
+            $this->refreshNextPendingWithdrawCache();
+            return;
+        }
+
+        $this->withdrawExecutionService->sendNotification(
+            $methodService,
+            $result['notification_data'],
+            $amount,
+            $processedAt,
+        );
+    }
+
+    private function buildNotificationData(array $data, string $withdrawId): array
+    {
+        return [
+            ...$data,
+            'account_withdraw_id' => $withdrawId,
+        ];
     }
 
     private function storeFailedWithdrawAttempt(
@@ -122,22 +151,6 @@ class AccountWithdrawService
         return $account;
     }
 
-    private function resolveMethod(string $method): WithdrawMethod
-    {
-        try {
-            return WithdrawMethod::from($method);
-        } catch (ValueError) {
-            throw new UnsupportedWithdrawMethodException();
-        }
-    }
-
-    private function resolveMethodService(WithdrawMethod $method): WithdrawMethodServiceInterface
-    {
-        return match ($method) {
-            WithdrawMethod::PIX => $this->pixService,
-        };
-    }
-
     private function parseScheduleSafely(?string $schedule): ?DateTimeImmutable
     {
         if ($schedule === null || $schedule === '') {
@@ -159,26 +172,6 @@ class AccountWithdrawService
     private function normalizeAmount(int|float|string $amount): string
     {
         return number_format((float) $amount, 2, '.', '');
-    }
-
-    private function assertSufficientBalance(Account $account, string $amount): void
-    {
-        if ($this->toCents((string) $account->balance) < $this->toCents($amount)) {
-            throw new InsufficientBalanceException();
-        }
-    }
-
-    private function deductAccountBalance(Account $account, string $amount): void
-    {
-        $newBalanceInCents = $this->toCents((string) $account->balance) - $this->toCents($amount);
-
-        if ($newBalanceInCents < 0) {
-            throw new InsufficientBalanceException();
-        }
-
-        $account->update([
-            'balance' => number_format($newBalanceInCents / 100, 2, '.', ''),
-        ]);
     }
 
     private function buildWithdrawData(
@@ -213,8 +206,15 @@ class AccountWithdrawService
         return substr($method, 0, 50);
     }
 
-    private function toCents(string $amount): int
+    private function refreshNextPendingWithdrawCache(): void
     {
-        return (int) round((float) $amount * 100);
+        $nextPendingScheduledFor = $this->repository->getNextPendingScheduledFor();
+
+        if ($nextPendingScheduledFor === null) {
+            $this->cache->delete(self::NEXT_PENDING_WITHDRAW_CACHE_KEY);
+            return;
+        }
+
+        $this->cache->set(self::NEXT_PENDING_WITHDRAW_CACHE_KEY, $nextPendingScheduledFor, 120);
     }
 }

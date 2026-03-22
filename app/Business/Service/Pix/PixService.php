@@ -45,6 +45,7 @@ class PixService implements WithdrawMethodServiceInterface
     public function sendNotification(array $data, string $amount, DateTimeImmutable $processedAt): void
     {
         $this->mailService->sendWithdrawExecutedEmail(
+            withdrawId: (string) ($data['account_withdraw_id'] ?? ''),
             recipientEmail: $data['pix']['key'],
             amount: $amount,
             pixType: $data['pix']['type'],
