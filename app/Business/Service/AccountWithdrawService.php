@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace App\Business\Service;
 
 use App\Business\Repository\AccountWithdrawRepository;
-use App\Enum\PixKeyType;
+use App\Contract\WithdrawMethodServiceInterface;
 use App\Enum\WithdrawMethod;
 use App\Exception\AccountNotFoundException;
 use App\Exception\InsufficientBalanceException;
 use App\Exception\InvalidWithdrawScheduleException;
-use App\Exception\UnsupportedPixKeyTypeException;
 use App\Exception\UnsupportedWithdrawMethodException;
 use App\Model\Account;
 use DateTimeImmutable;
 use Hyperf\DbConnection\Db;
+use Hyperf\Stringable\Str;
 use Throwable;
 use ValueError;
 
@@ -22,7 +22,7 @@ class AccountWithdrawService
 {
     public function __construct(
         private readonly AccountWithdrawRepository $repository,
-        private readonly MailService $mailService,
+        private readonly WithdrawMethodServiceInterface $pixService,
     ) {
     }
 
@@ -31,32 +31,38 @@ class AccountWithdrawService
         $amount = $this->normalizeAmount($data['amount']);
         $schedule = $this->parseScheduleSafely($data['schedule'] ?? null);
         $processedAt = new DateTimeImmutable();
+        $method = $this->resolveMethod($data['method']);
+        $methodService = $this->resolveMethodService($method);
 
         try {
-            $result = $this->processWithdraw($data, $amount, $schedule);
+            $result = $this->processWithdraw($data, $amount, $schedule, $method, $methodService);
         } catch (Throwable $throwable) {
             $this->storeFailedWithdrawAttempt($data, $amount, $schedule, $throwable);
             throw $throwable;
         }
 
         if ($schedule === null) {
-            $this->sendWithdrawNotification($data, $amount, $processedAt);
+            $methodService->sendNotification($data, $amount, $processedAt);
         }
 
         return $result;
     }
 
-    private function processWithdraw(array $data, string $amount, ?DateTimeImmutable $schedule): array
-    {
+    private function processWithdraw(
+        array $data,
+        string $amount,
+        ?DateTimeImmutable $schedule,
+        WithdrawMethod $method,
+        WithdrawMethodServiceInterface $methodService,
+    ): array {
         $account = $this->findAccount($data['account_id']);
-        $method = $this->resolveMethod($data['method']);
 
         $this->assertScheduleIsValid($schedule);
         $this->assertSufficientBalance($account, $amount);
-        $this->validateMethodPayload($method, $data);
+        $methodService->validatePayload($data);
 
-        return Db::transaction(function () use ($account, $data, $method, $schedule, $amount): array {
-            $withdrawId = $this->generateUuid();
+        return Db::transaction(function () use ($account, $data, $method, $methodService, $schedule, $amount): array {
+            $withdrawId = Str::uuid()->toString();
             $isScheduled = $schedule !== null;
 
             if (! $isScheduled) {
@@ -74,7 +80,7 @@ class AccountWithdrawService
                 errorReason: null,
             ));
 
-            $details = $this->storeMethodData($method, $withdrawId, $data);
+            $details = $methodService->storeData($withdrawId, $data);
 
             return [
                 'withdraw' => $withdraw,
@@ -92,7 +98,7 @@ class AccountWithdrawService
     ): void {
         try {
             $this->repository->storeWithDrawData($this->buildWithdrawData(
-                withdrawId: $this->generateUuid(),
+                withdrawId: Str::uuid()->toString(),
                 accountId: (string) ($data['account_id'] ?? ''),
                 method: $this->resolveFailedMethod($data['method'] ?? null),
                 amount: $amount,
@@ -125,6 +131,13 @@ class AccountWithdrawService
         }
     }
 
+    private function resolveMethodService(WithdrawMethod $method): WithdrawMethodServiceInterface
+    {
+        return match ($method) {
+            WithdrawMethod::PIX => $this->pixService,
+        };
+    }
+
     private function parseScheduleSafely(?string $schedule): ?DateTimeImmutable
     {
         if ($schedule === null || $schedule === '') {
@@ -152,26 +165,6 @@ class AccountWithdrawService
     {
         if ($this->toCents((string) $account->balance) < $this->toCents($amount)) {
             throw new InsufficientBalanceException();
-        }
-    }
-
-    private function validateMethodPayload(WithdrawMethod $method, array $data): void
-    {
-        match ($method) {
-            WithdrawMethod::PIX => $this->assertPixEmailKey($data),
-        };
-    }
-
-    private function assertPixEmailKey(array $data): void
-    {
-        try {
-            $pixKeyType = PixKeyType::from((string) ($data['pix']['type'] ?? ''));
-        } catch (ValueError) {
-            throw new UnsupportedPixKeyTypeException();
-        }
-
-        if ($pixKeyType !== PixKeyType::EMAIL) {
-            throw new UnsupportedPixKeyTypeException();
         }
     }
 
@@ -211,33 +204,6 @@ class AccountWithdrawService
         ];
     }
 
-    private function storeMethodData(WithdrawMethod $method, string $withdrawId, array $data): array
-    {
-        return match ($method) {
-            WithdrawMethod::PIX => $this->repository->storePixData($this->buildPixData($withdrawId, $data)),
-        };
-    }
-
-    private function buildPixData(string $withdrawId, array $data): array
-    {
-        return [
-            'account_withdraw_id' => $withdrawId,
-            'type' => $data['pix']['type'],
-            'key' => $data['pix']['key'],
-        ];
-    }
-
-    private function sendWithdrawNotification(array $data, string $amount, DateTimeImmutable $processedAt): void
-    {
-        $this->mailService->sendWithdrawExecutedEmail(
-            recipientEmail: $data['pix']['key'],
-            amount: $amount,
-            pixType: $data['pix']['type'],
-            pixKey: $data['pix']['key'],
-            processedAt: $processedAt,
-        );
-    }
-
     private function resolveFailedMethod(?string $method): string
     {
         if ($method === null || $method === '') {
@@ -250,14 +216,5 @@ class AccountWithdrawService
     private function toCents(string $amount): int
     {
         return (int) round((float) $amount * 100);
-    }
-
-    private function generateUuid(): string
-    {
-        $bytes = random_bytes(16);
-        $bytes[6] = chr((ord($bytes[6]) & 0x0f) | 0x40);
-        $bytes[8] = chr((ord($bytes[8]) & 0x3f) | 0x80);
-
-        return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($bytes), 4));
     }
 }
