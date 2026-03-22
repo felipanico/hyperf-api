@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Business\Service;
 
+use App\Business\Service\MailService;
 use App\Business\Repository\AccountWithdrawRepository;
 use App\Enum\PixKeyType;
 use App\Enum\WithdrawMethod;

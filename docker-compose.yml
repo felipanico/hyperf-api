@@ -31,6 +31,13 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
 
+  mailhog:
+    image: mailhog/mailhog
+    container_name: 'mailhog'
+    ports:
+      - "1025:1025" #porta smtp
+      - "8025:8025" #porta web
+
 networks:
   default:
     name: hyperf-skeleton
