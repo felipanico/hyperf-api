@@ -12,6 +12,7 @@ declare(strict_types=1);
 use Hyperf\HttpServer\Router\Router;
 
 Router::addRoute(['GET', 'POST', 'HEAD'], '/', 'App\Controller\IndexController@index');
+Router::post('/account/{accountId}/balance/withdraw', 'App\Controller\AccountWithdrawController@store');
 
 Router::get('/favicon.ico', function () {
     return '';

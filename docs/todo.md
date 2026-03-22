@@ -1,0 +1,4 @@
+## Verificar
+
+- Redis
+  

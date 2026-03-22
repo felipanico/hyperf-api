@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('account_withdraw', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->uuid('account_id');
-            $table->string('method');
+            $table->string('method', 50);
             $table->decimal('amount', 12, 2);
             $table->boolean('scheduled');
             $table->dateTime('scheduled_for')->nullable();
