@@ -9,6 +9,7 @@ services:
         GID: 1000
     volumes:
       - ./:/opt/www
+      - vendor_data:/opt/www/vendor
     ports:
       - 9501:9501
     environment:
@@ -23,7 +24,7 @@ services:
     image: mysql:8
     restart: unless-stopped
     environment:
-      MYSQL_DATABASE: api_pix
+      MYSQL_DATABASE: hyperf
       MYSQL_ROOT_PASSWORD: root
       MYSQL_USER: docker
       MYSQL_PASSWORD: homestead
@@ -67,3 +68,4 @@ networks:
 volumes:
   mysql_data:
   uptime_kuma_data:
+  vendor_data:

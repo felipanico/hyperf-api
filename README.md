@@ -25,6 +25,7 @@ http://localhost:9501
 Para criar os dados iniciais:
 
 ```bash
+docker exec -it hyperf-skeleton php bin/hyperf.php migrate
 docker exec -it hyperf-skeleton php bin/hyperf.php db:seed
 
 ```
@@ -56,6 +57,13 @@ Para derrubar o ambiente:
 
 ```bash
 docker compose down
+```
+
+Para rodar os testes
+
+```bash
+docker exec -it hyperf-skeleton ./vendor/bin/pest test/Unit/WithdrawMethodTest.php
+
 ```
 
 ## Serviços do docker-compose
@@ -111,6 +119,12 @@ Serviço de observabilidade do ambiente local.
 Responsabilidades:
 - receber heartbeat do cron
 - ajudar no monitoramento das execuções agendadas
+
+Interface web:
+
+```text
+http://localhost:3001
+```
 
 ## Comandos úteis
 

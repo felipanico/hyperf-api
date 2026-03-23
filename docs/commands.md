@@ -54,10 +54,3 @@ docker exec -it redis redis-cli GET c:cron:withdraw:next-pending-scheduled-for
 
 ```
 
-# Rodar Testes
-
-```bash
-docker exec -it hyperf-skeleton ./vendor/bin/pest test/Unit/WithdrawMethodTest.php
-
-```
-
