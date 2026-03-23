@@ -11,7 +11,8 @@ use App\Enum\WithdrawMethod;
 use App\Exception\AccountNotFoundException;
 use App\Exception\InvalidWithdrawScheduleException;
 use App\Model\Account;
-use DateTimeImmutable;
+use Carbon\Carbon;
+use Hyperf\Contract\ConfigInterface;
 use Hyperf\DbConnection\Db;
 use Hyperf\Stringable\Str;
 use Psr\SimpleCache\CacheInterface;
@@ -25,6 +26,7 @@ class AccountWithdrawService
         private readonly AccountWithdrawRepository $repository,
         private readonly WithdrawExecutionService $withdrawExecutionService,
         private readonly CacheInterface $cache,
+        private readonly ConfigInterface $config,
     ) {
     }
 
@@ -32,7 +34,8 @@ class AccountWithdrawService
     {
         $amount = $this->normalizeAmount($data['amount']);
         $schedule = $this->parseScheduleSafely($data['schedule'] ?? null);
-        $processedAt = new DateTimeImmutable();
+        $timezone = $this->config->get('app.timezone', 'America/Sao_Paulo');
+        $processedAt = Carbon::now($timezone);
         $method = $this->withdrawExecutionService->resolveMethod($data['method']);
         $methodService = $this->withdrawExecutionService->resolveMethodService($method);
 
@@ -51,7 +54,7 @@ class AccountWithdrawService
     private function processWithdraw(
         array $data,
         string $amount,
-        ?DateTimeImmutable $schedule,
+        ?Carbon $schedule,
         WithdrawMethod $method,
         WithdrawMethodServiceInterface $methodService,
     ): array {
@@ -92,11 +95,11 @@ class AccountWithdrawService
     }
 
     private function handleWithdrawExecution(
-        ?DateTimeImmutable $schedule,
+        ?Carbon $schedule,
         WithdrawMethodServiceInterface $methodService,
         array $result,
         string $amount,
-        DateTimeImmutable $processedAt,
+        Carbon $processedAt,
     ): void {
         if ($schedule !== null) {
             $this->refreshNextPendingWithdrawCache();
@@ -107,7 +110,7 @@ class AccountWithdrawService
             $methodService,
             $result['notification_data'],
             $amount,
-            $processedAt,
+            $processedAt->toDateTimeImmutable(),
         );
     }
 
@@ -122,7 +125,7 @@ class AccountWithdrawService
     private function storeFailedWithdrawAttempt(
         array $data,
         string $amount,
-        ?DateTimeImmutable $schedule,
+        ?Carbon $schedule,
         Throwable $throwable,
     ): void {
         try {
@@ -151,20 +154,27 @@ class AccountWithdrawService
         return $account;
     }
 
-    private function parseScheduleSafely(?string $schedule): ?DateTimeImmutable
+    private function parseScheduleSafely(?string $schedule): ?Carbon
     {
         if ($schedule === null || $schedule === '') {
             return null;
         }
 
-        $scheduledFor = DateTimeImmutable::createFromFormat('Y-m-d H:i', $schedule);
+        $timezone = $this->config->get('app.timezone', 'America/Sao_Paulo');
 
-        return $scheduledFor instanceof DateTimeImmutable ? $scheduledFor : null;
+        return Carbon::createFromFormat('Y-m-d H:i', $schedule, $timezone);
     }
 
-    private function assertScheduleIsValid(?DateTimeImmutable $schedule): void
+    private function assertScheduleIsValid(?Carbon $schedule): void
     {
-        if ($schedule !== null && $schedule < new DateTimeImmutable()) {
+        if ($schedule === null) {
+            return;
+        }
+
+        $timezone = $this->config->get('app.timezone', 'America/Sao_Paulo');
+        $now = Carbon::now($timezone);
+
+        if ($schedule->lt($now)) {
             throw new InvalidWithdrawScheduleException();
         }
     }
@@ -179,7 +189,7 @@ class AccountWithdrawService
         string $accountId,
         string $method,
         string $amount,
-        ?DateTimeImmutable $schedule,
+        ?Carbon $schedule,
         bool $done,
         bool $error,
         ?string $errorReason,

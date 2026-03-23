@@ -1,5 +1,5 @@
 
-# Container
+# Entrar no container da api
 
 ```bash
 
@@ -7,7 +7,7 @@ docker exec -it hyperf-skeleton sh
 
 ```
 
-# Seeder
+# Criar contas com saldo inicial
 
 ```bash
 
@@ -15,10 +15,10 @@ docker exec -it hyperf-skeleton php bin/hyperf.php db:seed
 
 ```
 
-# Rotas
+# Criar saque sem agendamento
 
 ```bash
-curl -X POST "http://localhost:9501/account/4d440fb6-3582-45d7-b334-aa20f386a7db/balance/withdraw" \
+curl -X POST "http://localhost:9501/account/11111111-2222-3333-4444-555555555555/balance/withdraw" \
   -H "Content-Type: application/json" \
   -d '{
     "method": "PIX",
@@ -26,16 +26,38 @@ curl -X POST "http://localhost:9501/account/4d440fb6-3582-45d7-b334-aa20f386a7db
       "type": "email",
       "key": "fulano@email.com"
     },
-    "amount": 150.75,
+    "amount": 1.50,
     "schedule": null
   }'
 ```
 
-# Saldo
+# Criar saque com agendamento
 
-```mysql
+```bash
+curl -X POST "http://localhost:9501/account/11111111-2222-3333-4444-555555555555/balance/withdraw" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method": "PIX",
+    "pix": {
+      "type": "email",
+      "key": "fulano@email.com"
+    },
+    "amount": 1.50,
+    "schedule": "2026-03-22 21:10"
+  }'
+```
 
-UPDATE account_withdraw SET scheduled_for = '2026-03-22 20:40:00', done=0, scheduled=1 WHERE id= '0ba474c4-9567-4a86-bbf3-294d8917bad6';
+# Consultar data do próximo agendamento no Redis
+
+```bash
+docker exec -it redis redis-cli GET c:cron:withdraw:next-pending-scheduled-for
+
+```
+
+# Rodar Testes
+
+```bash
+docker exec -it hyperf-skeleton ./vendor/bin/pest test/Unit/WithdrawMethodTest.php
 
 ```
 

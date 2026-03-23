@@ -1,64 +1,119 @@
 # API Pix
 
-API construida com Hyperf para servir como base do projeto api-pix.
-No estado atual, a aplicacao expoe um endpoint inicial em / que responde com uma mensagem simples em JSON.
-
-# Requirements
-
-Hyperf has some requirements for the system environment, it can only run under Linux and Mac environment, but due to the development of Docker virtualization technology, Docker for Windows can also be used as the running environment under Windows.
-
-The various versions of Dockerfile have been prepared for you in the [hyperf/hyperf-docker](https://github.com/hyperf/hyperf-docker) project, or directly based on the already built [hyperf/hyperf](https://hub.docker.com/r/hyperf/hyperf) Image to run.
-
-When you don't want to use Docker as the basis for your running environment, you need to make sure that your operating environment meets the following requirements:  
-
- - PHP >= 8.1
- - Any of the following network engines
-   - Swoole PHP extension >= 5.0，with `swoole.use_shortname` set to `Off` in your `php.ini`
-   - Swow PHP extension >= 1.3
- - JSON PHP extension
- - Pcntl PHP extension
- - OpenSSL PHP extension （If you need to use the HTTPS）
- - PDO PHP extension （If you need to use the MySQL Client）
- - Redis PHP extension （If you need to use the Redis Client）
- - Protobuf PHP extension （If you need to use the gRPC Server or Client）
-
-# Installation using Composer
-
-The easiest way to create a new Hyperf project is to use [Composer](https://getcomposer.org/). If you don't have it already installed, then please install as per [the documentation](https://getcomposer.org/download/).
-
-To create your new Hyperf project:
+Repositório do projeto:
 
 ```bash
-composer create-project hyperf/hyperf-skeleton path/to/install
+git clone https://github.com/felipanico/hyperf-api
+cd hyperf-api
+cp .env.example .env # preencher DB_PASSWORD e OBSERVABILITY_TOKEN
 ```
 
-If your development environment is based on Docker you can use the official Composer image to create a new Hyperf project:
+## Como subir com Docker Compose
+
+Com Docker e Docker Compose instalados, execute:
 
 ```bash
-docker run --rm -it -v $(pwd):/app composer create-project --ignore-platform-reqs hyperf/hyperf-skeleton path/to/install
+docker compose up -d --build
 ```
 
-# Getting started
+A aplicação ficará disponível em:
 
-Once installed, you can run the server immediately using the command below.
+```text
+http://localhost:9501
+```
+
+Para criar os dados iniciais:
 
 ```bash
-cd path/to/install
-php bin/hyperf.php start
+docker exec -it hyperf-skeleton php bin/hyperf.php db:seed
+
 ```
 
-Or if in a Docker based environment you can use the `docker-compose.yml` provided by the template:
+Para realizar uma operação com uma das contas criada no passo acima:
 
 ```bash
-cd path/to/install
-docker-compose up
+curl -X POST "http://localhost:9501/account/11111111-2222-3333-4444-555555555555/balance/withdraw" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "method": "PIX",
+    "pix": {
+      "type": "email",
+      "key": "fulano@email.com"
+    },
+    "amount": 1.50,
+    "schedule": null
+  }'
 ```
 
-This will start the cli-server on port `9501`, and bind it to all network interfaces. You can then visit the site at `http://localhost:9501/` which will bring up Hyperf default home page.
 
-## Hints
+Para acompanhar os logs da aplicação:
 
-- A nice tip is to rename `hyperf-skeleton` of files like `composer.json` and `docker-compose.yml` to your actual project name.
-- Take a look at `config/routes.php` and `app/Controller/IndexController.php` to see an example of a HTTP entrypoint.
+```bash
+docker compose logs -f hyperf-skeleton
+```
 
-**Remember:** you can always replace the contents of this README.md file to something that fits your project description.
+Para derrubar o ambiente:
+
+```bash
+docker compose down
+```
+
+## Serviços do docker-compose
+
+### hyperf-skeleton
+
+Container principal da aplicação Hyperf.
+
+Responsabilidades:
+- executar a API
+- expor as rotas HTTP
+- processar as regras de negócio
+- executar o cron configurado no projeto
+
+### mysql
+
+Banco de dados MySQL 8 da aplicação.
+
+Responsabilidades:
+- armazenar contas
+- armazenar saques
+- armazenar dados de PIX
+- persistir os dados da aplicação
+
+### redis
+
+Servidor de cache da aplicaçãoo.
+
+Responsabilidades:
+- armazenar dados em cache
+- auxiliar no controle de saques agendados
+- reduzir consultas desnecessárias ao banco
+
+### mailhog
+
+Serviço utilizado para testes locais de envio de e-mail.
+
+Responsabilidades:
+- capturar os e-mails enviados pela aplicação
+- permitir inspeçãoo manual dos e-mails sem envio real
+- Cadastre um monitoramento do tipo push e insira as credenciais conforme o .env.example
+
+Interface web:
+
+```text
+http://localhost:8025
+```
+
+### uptime-kuma
+
+Serviço de observabilidade do ambiente local.
+
+Responsabilidades:
+- receber heartbeat do cron
+- ajudar no monitoramento das execuções agendadas
+
+## Comandos úteis
+
+Os exemplos de uso e testes da aplicação estão no arquivo:
+
+`docs/commands.md`

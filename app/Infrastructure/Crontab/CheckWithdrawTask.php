@@ -43,9 +43,6 @@ class CheckWithdrawTask
 
         $dateTime = Carbon::now($timeZone)->toDateTimeString();
 
-        error_log('==TIMEZONE==' . $timeZone);
-        error_log('==DATETIME==' . $dateTime);
-        
         $pendingWithdraws = $this->withdrawRepository->getPendingWithDraws($dateTime);
 
         foreach ($pendingWithdraws as $withdraw) {
