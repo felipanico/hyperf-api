@@ -117,3 +117,49 @@ Responsabilidades:
 Os exemplos de uso e testes da aplicação estão no arquivo:
 
 `docs/commands.md`
+
+## Considerações para produção
+
+Em um ambiente de produção, este projeto pode ser evoluído para suportar maior volume de processamento e melhor capacidade de observação da aplicação.
+
+### Escalabilidade
+
+Para escalar a aplicação, é possível ajustar melhor as configurações do Hyperf de acordo com o ambiente de execução e com a carga esperada.
+
+Alguns exemplos:
+- aumentar a quantidade de `workers`
+- ajustar `max_requests`
+- revisar a configuração de processos e crontabs
+
+Também é recomendável mover tarefas mais custosas para rotinas assíncronas, evitando bloquear o fluxo principal da API.
+
+Exemplos:
+- envio de e-mails
+- processamento de saques agendados em filas
+- integrações com serviços externos
+- geração de notificações e eventos
+
+Dependendo da necessidade, isso pode ser feito com filas, workers dedicados, mensageria e consumidores assíncronos.
+
+### Observabilidade
+
+Para produção, é recomendável utilizar ferramentas de observabilidade mais robustas do que as usadas localmente.
+
+Alguns exemplos:
+- Prometheus
+- Grafana
+- Loki
+- Elasticsearch
+- Datadog
+- Sentry
+
+Com essas ferramentas, é possível acompanhar melhor:
+- métricas da aplicação
+- consumo de CPU e memória
+- latência das rotas
+- falhas em processos assíncronos
+- erros de negócio
+- logs centralizados
+- tracing distribuído
+
+Essas melhorias ajudam a tornar a aplicação mais preparada para cenários reais de produção, com maior estabilidade, capacidade de diagnóstico e facilidade de crescimento.
